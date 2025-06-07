@@ -1,47 +1,77 @@
-import socket
-import pickle
-from Crypto.PublicKey import RSA
-from Crypto.Cipher import PKCS1_OAEP
+import socket  # Импорт модуля для работы с сетевыми сокетами (для создания сетевых соединений)
+import pickle  # Импорт модуля pickle для сериализации/десериализации объектов Python (для преобразования объектов в байты и обратно)
 
-HOST = '127.0.0.1'
-PORT = 8080
+HOST = '127.0.0.1'  # IP-адрес хоста, на котором будет слушать сервер (localhost - ваш компьютер)
+PORT = 9090       # Порт, на котором будет слушать сервер (число от 1024 до 65535)
 
-# Diffie-Hellman parameters
-sock = socket.socket()
-sock.bind((HOST, PORT))
-sock.listen(1)
-conn, addr = sock.accept()
+# --- Инициализация сервера ---
 
-# Receive Diffie-Hellman parameters and A from the client
-msg = conn.recv(1024)
+# 1. Создание сокета:
+# socket.AF_INET указывает, что мы используем сетевой протокол IPv4.
+# socket.SOCK_STREAM указывает, что мы используем протокол TCP (для потоковой передачи данных, надежное соединение).
+server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+# 2. Привязка сокета к адресу и порту:
+# Сервер начинает "слушать" (ожидать подключений) на указанном IP-адресе и порту.
+server_socket.bind((HOST, PORT))
+
+# 3. Перевод сокета в режим ожидания входящих подключений:
+# 1 - это максимальное количество клиентов, которые могут находиться в очереди на подключение,
+# пока сервер обрабатывает текущее соединение.
+server_socket.listen(1)
+print(f"Сервер запущен и слушает на {HOST}:{PORT}...")
+
+# 4. Принятие входящего соединения:
+# server_socket.accept() блокирует выполнение программы до тех пор, пока клиент не подключится.
+# conn - это новый сокет, который будет использоваться для обмена данными именно с этим подключившимся клиентом.
+# addr - это адрес (IP-адрес и порт) подключившегося клиента.
+conn, addr = server_socket.accept()
+print(f"Подключен клиент с адреса: {addr}")
+
+# --- Обмен ключами Диффи-Хеллмана ---
+
+# 5. Получение первого сообщения от клиента:
+# conn.recv(1024) принимает до 1024 байт данных от клиента.
+# Ожидается, что клиент отправит кортеж (p, g, A), где:
+# p - большое простое число (публичный параметр)
+# g - генератор по модулю p (публичный параметр)
+# A - открытый ключ клиента (A = g^a mod p)
+client_data_bytes = conn.recv(1024)
+# pickle.loads() десериализует полученные байты обратно в Python объекты.
+p, g, A = pickle.loads(client_data_bytes)
+print(f"Получены публичные параметры и открытый ключ от клиента:")
+print(f"  p (модуль): {p}")
+print(f"  g (генератор): {g}")
+print(f"  A (открытый ключ клиента): {A}")
+
+# 6. Определение секретного числа сервера (b):
+# Это ПРИВАТНОЕ число сервера, оно должно быть большим и случайным в реальных сценариях.
+# В данном примере используется фиксированное маленькое значение для демонстрации.
 b = 9
-p, g, A = pickle.loads(msg)
+print(f"Секретное число сервера (b): {b}")
 
-# Compute B and send it to the client
-B = g ** b % p
+# 7. Вычисление открытого ключа сервера (B):
+# B = g^b mod p.
+# pow(base, exp, mod) - это встроенная функция Python для эффективного вычисления (base^exp) % mod.
+B = pow(g, b, p)
+print(f"Вычислен открытый ключ сервера (B): {B}")
+
+# 8. Отправка открытого ключа B клиенту:
+# pickle.dumps(B) сериализует число B в байты для отправки по сети.
 conn.send(pickle.dumps(B))
+print(f"Отправлен открытый ключ B клиенту.")
 
-# Calculate the shared secret K
-K = A ** b % p
-print("Shared secret K =", K)
+# 9. Вычисление общего секретного ключа (K) на сервере:
+# K = A^b mod p.
+# Здесь A - это открытый ключ, полученный от клиента.
+# Этот K должен совпасть с K, вычисленным на клиенте.
+shared_secret_key_server = pow(A, b, p)
+print(f"Вычислен общий секретный ключ на сервере (K): {shared_secret_key_server}")
 
-# Generate the RSA public/private key pair
-private_key = RSA.generate(2048)
-public_key = private_key.publickey()
+# --- Завершение работы ---
 
-# Export the public key to PEM format (bytes)
-public_key_pem = public_key.export_key()
-
-# Send the PEM-encoded public key to the client
-conn.send(pickle.dumps(public_key_pem))
-
-# Receive and decrypt the message from the client
-msg = conn.recv(1024)
-encrypted_message = pickle.loads(msg)
-
-decryptor = PKCS1_OAEP.new(private_key)
-decrypted_message = decryptor.decrypt(encrypted_message)
-
-print(f"Decrypted message: {decrypted_message.decode()}")
-
+# 10. Закрытие соединения с клиентом:
 conn.close()
+# 11. Закрытие серверного сокета:
+server_socket.close()
+print("Соединение закрыто. Сервер остановлен.")

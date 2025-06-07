@@ -1,43 +1,60 @@
-import socket
-import pickle
-from Crypto.PublicKey import RSA
-from Crypto.Cipher import PKCS1_OAEP
+import socket  # Импорт модуля для работы с сетевыми сокетами
+import pickle  # Импорт модуля pickle для сериализации/десериализации объектов Python
 
-HOST = '127.0.0.1'
-PORT = 8080
+HOST = '127.0.0.1'  # IP-адрес хоста, к которому будет подключаться клиент (тот же, что и у сервера)
+PORT = 9090       # Порт, к которому будет подключаться клиент (тот же, что и у сервера)
 
-# Diffie-Hellman parameters
+# --- Инициализация клиента ---
+
+# 1. Создание сокета:
+# socket.AF_INET для IPv4, socket.SOCK_STREAM для TCP.
+client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+# 2. Подключение к серверу:
+# client_socket.connect() блокирует выполнение программы до тех пор, пока не установится соединение с сервером.
+print(f"Клиент подключается к {HOST}:{PORT}...")
+client_socket.connect((HOST, PORT))
+print(f"Успешно подключено к серверу.")
+
+# --- Обмен ключами Диффи-Хеллмана ---
+
+# 3. Определение публичных параметров (p, g) и секретного числа клиента (a):
+# В реальной системе p и g должны быть большими случайными простыми числами, а 'a' - большим случайным числом.
+# Здесь используются малые фиксированные значения для простоты демонстрации.
 p, g, a = 7, 5, 3
-A = g ** a % p
+print(f"Публичные параметры клиента:")
+print(f"  p (модуль): {p}")
+print(f"  g (генератор): {g}")
+print(f"Секретное число клиента (a): {a}")
 
-# Connect to server
-sock = socket.socket()
-sock.connect((HOST, PORT))
+# 4. Вычисление открытого ключа клиента (A):
+# A = g^a mod p.
+# pow(base, exp, mod) - эффективное вычисление (base^exp) % mod.
+A = pow(g, a, p)
+print(f"Вычислен открытый ключ клиента (A): {A}")
 
-# Send Diffie-Hellman parameters and A to the server
-sock.send(pickle.dumps((p, g, A)))
+# 5. Отправка публичных параметров (p, g) и открытого ключа (A) серверу:
+# pickle.dumps() сериализует объекты Python в байты для отправки по сети.
+# Отправляем кортеж (p, g, A).
+client_socket.send(pickle.dumps((p, g, A)))
+print(f"Отправлены p, g, A серверу.")
 
-# Receive B from the server
-msg = sock.recv(1024)
-B = pickle.loads(msg)
+# 6. Получение открытого ключа сервера (B):
+# client_socket.recv(1024) принимает до 1024 байт данных от сервера.
+server_data_bytes = client_socket.recv(1024)
+# pickle.loads() десериализует полученные байты обратно в объект Python.
+B = pickle.loads(server_data_bytes)
+print(f"Получен открытый ключ B от сервера: {B}")
 
-# Calculate the shared secret K
-K = B ** a % p
-print("Shared secret K =", K)
+# 7. Вычисление общего секретного ключа (K) на клиенте:
+# K = B^a mod p.
+# Здесь B - это открытый ключ, полученный от сервера.
+# Этот K должен совпасть с K, вычисленным на сервере.
+shared_secret_key_client = pow(B, a, p)
+print(f"Вычислен общий секретный ключ на клиенте (K): {shared_secret_key_client}")
 
-# Receive the server's public key (PEM format)
-msg = sock.recv(1024)
-public_key_pem = pickle.loads(msg)
+# --- Завершение работы ---
 
-# Import the public key from PEM format
-server_public_key = RSA.import_key(public_key_pem)
-
-# Encrypt a message using the server's public key
-message = "Hello, server!"
-encryptor = PKCS1_OAEP.new(server_public_key)
-encrypted_message = encryptor.encrypt(message.encode())
-
-# Send the encrypted message to the server
-sock.send(pickle.dumps(encrypted_message))
-
-sock.close()
+# 8. Закрытие соединения с сервером:
+client_socket.close()
+print("Соединение закрыто. Клиент остановлен.")
